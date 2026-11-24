@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>פולשי החלל 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#020617;color:#d7f5e0;min-height:100vh;display:flex;flex-direction:column;align-items:center;overflow:hidden;touch-action:none;user-select:none}
+header{width:100%;max-width:520px;padding:11px 16px 2px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px}
+h1{font-size:20px;color:#4ade80}
+#hud{font-size:12px;background:#ffffff14;padding:6px 10px;border-radius:14px;display:flex;gap:8px;font-weight:700;flex-wrap:wrap}
+#msg{font-size:13.5px;color:#86a795;min-height:19px;padding:2px 8px}
+#wrap{width:100%;max-width:520px;padding:0 8px}
+canvas{width:100%;display:block;border-radius:14px;background:#04101f;touch-action:none}
+#ctl{width:100%;max-width:520px;display:flex;gap:8px;padding:8px}
+#ctl button{flex:1;padding:14px 0;font-size:16px;font-weight:800;border:none;border-radius:14px;cursor:pointer;color:#052e12;background:#16a34a}
+#fireB{background:linear-gradient(135deg,#4ade80,#16a34a)}
+#ctl button:active{filter:brightness(1.25)}
+.ov{position:fixed;inset:0;background:#020617e8;display:flex;align-items:center;justify-content:center;z-index:9;padding:20px}
+.card{background:#0a1f14;border:2px solid #4ade8055;border-radius:22px;padding:26px 22px;text-align:center;max-width:340px;width:100%}
+.card h2{color:#4ade80;font-size:26px;margin-bottom:10px}
+.card p{color:#c8e8d2;font-size:14px;line-height:1.6;margin-bottom:18px}
+.card button{padding:14px 40px;font-size:17px;font-weight:800;border:none;border-radius:14px;background:linear-gradient(135deg,#4ade80,#16a34a);color:#052e12;cursor:pointer}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>פולשי החלל 3D</h1><div id="hud"><span id="score">0</span><span id="lives">♥♥♥</span><span id="wave">גל 1</span><span id="best">שיא: 0</span></div></header>
+<div id="msg">הזיזו את הספינה וירו לפני שהפולשים מגיעים</div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="ctl"><button id="leftB">◀</button><button id="fireB">ירי</button><button id="rightB">▶</button></div>
+<div class="ov" id="ovS"><div class="card"><h2>פולשי החלל 3D</h2><p>הקלאסיקה מ-1978, הפעם בעומק. גררו על המסך או החזיקו את החצים כדי לזוז, ירו בפולשים לפני שהם מגיעים לספינה. שלושה חיים.</p><button id="startBtn">התחל</button></div></div>
+<div class="ov hide" id="ovE"><div class="card"><h2>נגמר המשחק</h2><p id="ovP"></p><button id="againB">שחקו שוב</button></div></div>
+<script>
+'use strict';
+const c=document.getElementById('c'),x=c.getContext('2d');x.direction='ltr';
+const W=390,H=540;c.width=W;c.height=H;
+const F=380,CAM={x:0,y:6.5,z:-11};
+const scoreEl=document.getElementById('score'),livesEl=document.getElementById('lives'),waveEl=document.getElementById('wave'),bestEl=document.getElementById('best'),msg=document.getElementById('msg');
+let best=+(localStorage.getItem('inv3d_best')||0);bestEl.textContent='שיא: '+best;
+let aliens,bolts,bombs,px,score,lives,wave,run,t,adv,speed,keys,shake;
+function proj(px_,py_,pz_){const dz=pz_-CAM.z;if(dz<0.5)return null;const s=F/dz;return [W/2+(px_-CAM.x)*s,H*0.62-(py_-CAM.y)*s,s]}
+function box(pz_,list,px_,py_,s,col){list.push({z:pz_,x:px_,y:py_,s,col})}
+function spawnWave(){
+  aliens=[];adv=0;
+  for(let r=0;r<3;r++)for(let col=0;col<5;col++)
+    aliens.push({col,row:r,alive:true});
+  speed=0.014+wave*0.004;
+}
+function reset(){bolts=[];bombs=[];px=0;score=0;lives=3;wave=1;t=0;shake=0;keys={l:false,r:false};spawnWave();
+  scoreEl.textContent='0';livesEl.textContent='♥♥♥';waveEl.textContent='גל 1'}
+function alienPos(a){const sway=Math.sin(t*0.02)*2.4;return [-8+a.col*4+sway, 2.2+a.row*0.9, 34+a.row*7-adv]}
+function line3(x1,y1,z1,x2,y2,z2,col,lw){const a=proj(x1,y1,z1),b=proj(x2,y2,z2);if(!a||!b)return;x.strokeStyle=col;x.lineWidth=lw||1;x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(b[0],b[1]);x.stroke()}
+function draw(){
+  const g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,'#04101f');g.addColorStop(1,'#031408');x.fillStyle=g;x.fillRect(0,0,W,H);
+  x.fillStyle='#e2e8f0';for(let i=0;i<40;i++){x.globalAlpha=0.3+((i*37)%50)/100;x.fillRect((i*97)%W,(i*61)%Math.floor(H*0.4),1.6,1.6)}x.globalAlpha=1;
+  // ground grid
+  for(let gx=-12;gx<=12;gx+=2)line3(gx,0,2,gx,0,72,'#22c55e33');
+  for(let gz=4;gz<=72;gz+=4)line3(-12,0,gz,12,0,gz,'#22c55e33');
+  // collect boxes
+  const list=[];
+  for(const a of aliens){if(!a.alive)continue;const[ax,ay,az]=alienPos(a);
+    const colr=a.row===0?'#f87171':a.row===1?'#facc15':'#4ade80';
+    box(az,list,ax,ay,1.5,colr);
+    box(az+0.4,list,ax-1.1,ay+0.9,0.5,colr);
+    box(az+0.4,list,ax+1.1,ay+0.9,0.5,colr);}
+  for(const b of bolts)box(b.z,list,b.x,1.4,0.5,'#f8fafc');
+  for(const b of bombs)box(b.z,list,b.x,1.2,0.7,'#f87171');
+  // ship
+  box(3,list,px,0.9,1.7,'#60a5fa');
+  box(3.6,list,px,1.9,0.8,'#93c5fd');
+  box(3,list,px-1.6,0.6,0.9,'#3b82f6');
+  box(3,list,px+1.6,0.6,0.9,'#3b82f6');
+  list.sort((a,b)=>b.z-a.z);
+  for(const b of list){const p=proj(b.x,b.y,b.z);if(!p)continue;const s=b.s*p[2];
+    x.fillStyle=b.col;x.fillRect(p[0]-s/2,p[1]-s/2,s,s);
+    x.fillStyle='#ffffff2e';x.fillRect(p[0]-s/2,p[1]-s/2,s,s/3);}
+  if(shake>0){shake--;if(shake%4<2){x.fillStyle='#ef444422';x.fillRect(0,0,W,H)}}
+}
+function loseLife(){
+  lives--;livesEl.textContent='♥'.repeat(Math.max(0,lives))||'-';shake=30;
+  if(lives<=0){run=false;if(score>best){best=score;localStorage.setItem('inv3d_best',best);bestEl.textContent='שיא: '+best}
+    document.getElementById('ovP').textContent='צברתם '+score+' נקודות והגעתם לגל '+wave+'. שיא: '+best+'.';
+    document.getElementById('ovE').classList.remove('hide');msg.textContent='שחקו שוב!';return}
+  adv=0;spawnWave();
+}
+function loop(){
+  if(!run)return;t++;
+  if(keys.l)px-=0.28;if(keys.r)px+=0.28;px=Math.max(-10,Math.min(10,px));
+  adv+=speed*10;
+  for(let i=bolts.length-1;i>=0;i--){bolts[i].z+=0.9;if(bolts[i].z>72)bolts.splice(i,1)}
+  for(let i=bombs.length-1;i>=0;i--){bombs[i].z-=0.42;if(bombs[i].z<1)bombs.splice(i,1)}
+  // alien fire
+  if(t%Math.max(18,50-wave*3)===0){const alive=aliens.filter(a=>a.alive);if(alive.length){const a=alive[Math.floor(Math.random()*alive.length)];const[ax,,az]=alienPos(a);bombs.push({x:ax,z:az-1})}}
+  // bolt hits
+  for(let i=bolts.length-1;i>=0;i--){
+    const b=bolts[i];let hit=false;
+    for(const a of aliens){if(!a.alive)continue;const[ax,ay,az]=alienPos(a);
+      if(Math.abs(b.x-ax)<1.6&&Math.abs(b.z-az)<1.6){a.alive=false;hit=true;score+=10*(3-a.row);scoreEl.textContent=score;
+        if(score>best){best=score;localStorage.setItem('inv3d_best',best);bestEl.textContent='שיא: '+best}
+        break}}
+    if(hit)bolts.splice(i,1);
+  }
+  // bomb hits ship
+  for(let i=bombs.length-1;i>=0;i--){const b=bombs[i];if(b.z<4.5&&b.z>1.5&&Math.abs(b.x-px)<1.8){bombs.splice(i,1);loseLife();if(!run)return}}
+  // aliens reach player
+  for(const a of aliens){if(a.alive){const[,,az]=alienPos(a);if(az<5){loseLife();if(!run)return;break}}}
+  if(run&&aliens.every(a=>!a.alive)){wave++;waveEl.textContent='גל '+wave;msg.textContent='גל '+wave+'!';spawnWave()}
+  draw();requestAnimationFrame(loop);
+}
+let lastFire=0;
+function fire(){if(!run)return;const now=Date.now();if(now-lastFire<220)return;lastFire=now;bolts.push({x:px,z:4})}
+function start(){document.getElementById('ovS').classList.add('hide');document.getElementById('ovE').classList.add('hide');reset();msg.textContent='הזיזו את הספינה וירו לפני שהפולשים מגיעים';run=true;loop()}
+function bindHold(id,down,up){const el=document.getElementById(id);
+  el.addEventListener('touchstart',e=>{e.preventDefault();down()},{passive:false});
+  el.addEventListener('touchend',e=>{e.preventDefault();up&&up()},{passive:false});
+  el.addEventListener('mousedown',down);el.addEventListener('mouseup',()=>up&&up());}
+bindHold('leftB',()=>keys.l=true,()=>keys.l=false);
+bindHold('rightB',()=>keys.r=true,()=>keys.r=false);
+document.getElementById('fireB').addEventListener('touchstart',e=>{e.preventDefault();fire()},{passive:false});
+document.getElementById('fireB').addEventListener('mousedown',fire);
+// drag on canvas moves ship
+c.addEventListener('touchmove',e=>{e.preventDefault();const r=c.getBoundingClientRect();const mx=(e.changedTouches[0].clientX-r.left)/r.width;px=(mx-0.5)*24;px=Math.max(-10,Math.min(10,px))},{passive:false});
+document.getElementById('startBtn').onclick=start;
+document.getElementById('againB').onclick=start;
+reset();draw();
+</script>
+</body>
+</html>
